@@ -234,7 +234,7 @@
   <div class="actions">
     <button class="add-btn" id="addBtn">+ Add stage</button>
     <button class="apply-btn" id="applyBtn">Apply</button>
-    <button class="share-btn" id="shareBtn">Copy link</button>
+    <button class="share-btn" id="shareBtn">Share link</button>
   </div>
   <div class="hint">Click the speed badge to cycle: <b>Normal</b> (gray) → <b>Accelerated</b> (red, fast) → <b>Slow</b> (blue). Use <b>− / +</b> to set the relative width of each stage. Particles pile up before fast stages, revealing your bottleneck.</div>
 </div>
@@ -399,7 +399,7 @@
       shareBtn.classList.add('copied');
       clearTimeout(shareTimeout);
       shareTimeout = setTimeout(() => {
-        shareBtn.textContent = 'Copy link';
+        shareBtn.textContent = 'Share link';
         shareBtn.classList.remove('copied');
       }, 2000);
     });
