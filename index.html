@@ -267,7 +267,7 @@
 
   function decodeStages(hash) {
     try {
-      return hash.replace(/^#/, '').split('|').map(part => {
+      return decodeURIComponent(hash.replace(/^#/, '')).split('|').map(part => {
         const [label, spd, w] = part.split(',');
         return { label: decodeURIComponent(label).toUpperCase(), speed: CHAR_SPEED[spd] || 'normal', weight: Math.min(9, Math.max(1, parseInt(w) || 1)) };
       }).filter(s => s.label);
