@@ -605,30 +605,35 @@
       ctx.setLineDash([]);
     }
 
-    // Build blocked set: particles that cannot yet enter a concurrency-limited stage
-    const blocked = new Set();
-    currentStages.forEach((s, idx) => {
-      if (!s.concurrency) return;
+    // Pre-compute how many particles are currently inside each concurrency-limited stage
+    const stageLoad = currentStages.map((s, idx) => {
+      if (!s.concurrency) return 0;
       const { left, width } = colOffsets[idx];
-      const inside = particles.filter(p => p.x >= left && p.x < left + width);
-      if (inside.length >= s.concurrency) {
-        // Block particles that are approaching but haven't entered yet
-        particles
-          .filter(p => p.x < left)
-          .sort((a, b) => b.x - a.x)
-          .forEach(p => blocked.add(p.id));
-      }
+      return particles.filter(p => p.x >= left && p.x < left + width).length;
     });
 
     // Update & draw particles
     const alive = [];
     for (const p of particles) {
-      const curIdx  = stageIndexAt(p.x);
-      const nextX   = p.x + speedAt(p.x);
+      const curIdx = stageIndexAt(p.x);
+      const nextX  = p.x + speedAt(p.x);
       const nextIdx = stageIndexAt(nextX);
-      const isBlocked = blocked.has(p.id) && nextIdx !== curIdx;
 
-      if (!isBlocked) p.x = nextX;
+      // Would this particle enter a new stage that is already at capacity?
+      const enteringNewStage = nextIdx !== curIdx;
+      const targetStage = currentStages[nextIdx];
+      const isBlocked = enteringNewStage
+        && targetStage
+        && targetStage.concurrency > 0
+        && stageLoad[nextIdx] >= targetStage.concurrency;
+
+      if (isBlocked) {
+        p.queued = true;
+      } else {
+        p.x = nextX;
+        // Clear queued flag once the particle has entered its target stage
+        if (p.queued && nextIdx === stageIndexAt(p.x)) p.queued = false;
+      }
       if (p.x > W + 10) continue;
       alive.push(p);
 
@@ -646,11 +651,11 @@
       if (p.y > CANVAS_H - p.r) { p.y = CANVAS_H - p.r; p.vy = 0; }
 
       const spd = stageAt(p.x).speed;
-      const drawR = isBlocked ? p.r * 0.75 : p.r;
+      const drawR = p.queued ? p.r * 0.75 : p.r;
       ctx.beginPath();
       ctx.arc(p.x, p.y, drawR, 0, Math.PI * 2);
       ctx.fillStyle   = spd === 'fast' ? ACCENT : spd === 'slow' ? ACCENT_SLOW : DOT_COLOR;
-      ctx.globalAlpha = isBlocked ? 0.25 : (spd === 'normal' ? 0.5 : 0.9);
+      ctx.globalAlpha = p.queued ? 0.25 : (spd === 'normal' ? 0.5 : 0.9);
       ctx.fill();
       ctx.globalAlpha = 1;
     }
