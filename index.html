@@ -57,11 +57,12 @@
     text-transform: uppercase;
     color: #BBB;
   }
-  .stage-list-header .col-handle  { width: 18px; flex-shrink: 0; }
-  .stage-list-header .col-label   { flex: 1; }
-  .stage-list-header .col-speed   { min-width: 90px; text-align: center; }
-  .stage-list-header .col-weight  { width: 70px; text-align: center; flex-shrink: 0; }
-  .stage-list-header .col-remove  { width: 24px; flex-shrink: 0; }
+  .stage-list-header .col-handle      { width: 18px; flex-shrink: 0; }
+  .stage-list-header .col-label       { flex: 1; }
+  .stage-list-header .col-speed       { min-width: 90px; text-align: center; }
+  .stage-list-header .col-weight      { width: 70px; text-align: center; flex-shrink: 0; }
+  .stage-list-header .col-concurrency { width: 70px; text-align: center; flex-shrink: 0; }
+  .stage-list-header .col-remove      { width: 24px; flex-shrink: 0; }
   .stage-row {
     display: flex;
     align-items: center;
@@ -229,6 +230,7 @@
     <span class="col-label">Stage</span>
     <span class="col-speed">Speed</span>
     <span class="col-weight">Length</span>
+    <span class="col-concurrency">Parallel</span>
     <span class="col-remove"></span>
   </div>
   <div class="stage-list" id="stageList"></div>
@@ -237,7 +239,7 @@
     <button class="apply-btn" id="applyBtn">Apply</button>
     <button class="share-btn" id="shareBtn">Share link</button>
   </div>
-  <div class="hint">Click the speed badge to cycle: <b>Normal</b> (gray) → <b>Accelerated</b> (red, fast) → <b>Slow</b> (blue). Use <b>− / +</b> to set the relative width of each stage. Particles pile up before fast stages, revealing your bottleneck.</div>
+  <div class="hint">Click the speed badge to cycle: <b>Normal</b> (gray) → <b>Accelerated</b> (red, fast) → <b>Slow</b> (blue). Use <b>Length − / +</b> to set relative stage width. Use <b>Parallel − / +</b> to cap concurrent items (∞ = no limit) — extras queue at the entrance, shown faded.</div>
 </div>
 
 <div class="viz-container">
@@ -250,11 +252,11 @@
      CONFIGURATION UI
      ════════════════════════════════════════ */
   const defaultStages = [
-    { label: 'PLAN',   speed: 'normal', weight: 1 },
-    { label: 'CODE',   speed: 'fast',   weight: 3 },
-    { label: 'REVIEW', speed: 'slow',   weight: 2 },
-    { label: 'TEST',   speed: 'normal', weight: 2 },
-    { label: 'DEPLOY', speed: 'normal', weight: 1 },
+    { label: 'PLAN',   speed: 'normal', weight: 1, concurrency: 0 },
+    { label: 'CODE',   speed: 'fast',   weight: 3, concurrency: 0 },
+    { label: 'REVIEW', speed: 'slow',   weight: 2, concurrency: 3 },
+    { label: 'TEST',   speed: 'normal', weight: 2, concurrency: 0 },
+    { label: 'DEPLOY', speed: 'normal', weight: 1, concurrency: 0 },
   ];
 
   // ── URL hash serialisation ──
@@ -262,14 +264,14 @@
   const CHAR_SPEED = { n: 'normal', f: 'fast', s: 'slow' };
 
   function encodeStages(s) {
-    return s.map(st => `${encodeURIComponent(st.label)},${SPEED_CHAR[st.speed] || 'n'},${st.weight || 1}`).join('|');
+    return s.map(st => `${encodeURIComponent(st.label)},${SPEED_CHAR[st.speed] || 'n'},${st.weight || 1},${st.concurrency || 0}`).join('|');
   }
 
   function decodeStages(hash) {
     try {
       return decodeURIComponent(hash.replace(/^#/, '')).split('|').map(part => {
-        const [label, spd, w] = part.split(',');
-        return { label: decodeURIComponent(label).toUpperCase(), speed: CHAR_SPEED[spd] || 'normal', weight: Math.min(9, Math.max(1, parseInt(w) || 1)) };
+        const [label, spd, w, c] = part.split(',');
+        return { label: decodeURIComponent(label).toUpperCase(), speed: CHAR_SPEED[spd] || 'normal', weight: Math.min(9, Math.max(1, parseInt(w) || 1)), concurrency: Math.min(20, Math.max(0, parseInt(c) || 0)) };
       }).filter(s => s.label);
     } catch { return null; }
   }
@@ -342,6 +344,30 @@
       });
       weightCtrl.append(weightDec, weightVal, weightInc);
 
+      // Concurrency stepper
+      const concCtrl = document.createElement('div');
+      concCtrl.className = 'weight-ctrl';
+      const concDec = document.createElement('button');
+      concDec.textContent = '−';
+      const concVal = document.createElement('span');
+      concVal.className = 'weight-val';
+      concVal.textContent = s.concurrency === 0 ? '∞' : s.concurrency;
+      const concInc = document.createElement('button');
+      concInc.textContent = '+';
+      concDec.addEventListener('click', () => {
+        if (stages[i].concurrency > 0) {
+          stages[i].concurrency--;
+          concVal.textContent = stages[i].concurrency === 0 ? '∞' : stages[i].concurrency;
+        }
+      });
+      concInc.addEventListener('click', () => {
+        if (stages[i].concurrency < 20) {
+          stages[i].concurrency++;
+          concVal.textContent = stages[i].concurrency;
+        }
+      });
+      concCtrl.append(concDec, concVal, concInc);
+
       // Remove button
       const remove = document.createElement('button');
       remove.className = 'remove-btn';
@@ -353,7 +379,7 @@
         }
       });
 
-      row.append(handle, input, toggle, weightCtrl, remove);
+      row.append(handle, input, toggle, weightCtrl, concCtrl, remove);
       listEl.appendChild(row);
 
       // ── Drag & drop reorder ──
@@ -380,7 +406,7 @@
   renderList();
 
   addBtn.addEventListener('click', () => {
-    stages.push({ label: 'NEW', speed: 'normal', weight: 1 });
+    stages.push({ label: 'NEW', speed: 'normal', weight: 1, concurrency: 0 });
     renderList();
     listEl.lastChild.querySelector('input').select();
   });
@@ -579,10 +605,30 @@
       ctx.setLineDash([]);
     }
 
+    // Build blocked set: particles that cannot yet enter a concurrency-limited stage
+    const blocked = new Set();
+    currentStages.forEach((s, idx) => {
+      if (!s.concurrency) return;
+      const { left, width } = colOffsets[idx];
+      const inside = particles.filter(p => p.x >= left && p.x < left + width);
+      if (inside.length >= s.concurrency) {
+        // Block particles that are approaching but haven't entered yet
+        particles
+          .filter(p => p.x < left)
+          .sort((a, b) => b.x - a.x)
+          .forEach(p => blocked.add(p.id));
+      }
+    });
+
     // Update & draw particles
     const alive = [];
     for (const p of particles) {
-      p.x += speedAt(p.x);
+      const curIdx  = stageIndexAt(p.x);
+      const nextX   = p.x + speedAt(p.x);
+      const nextIdx = stageIndexAt(nextX);
+      const isBlocked = blocked.has(p.id) && nextIdx !== curIdx;
+
+      if (!isBlocked) p.x = nextX;
       if (p.x > W + 10) continue;
       alive.push(p);
 
@@ -600,10 +646,11 @@
       if (p.y > CANVAS_H - p.r) { p.y = CANVAS_H - p.r; p.vy = 0; }
 
       const spd = stageAt(p.x).speed;
+      const drawR = isBlocked ? p.r * 0.75 : p.r;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, drawR, 0, Math.PI * 2);
       ctx.fillStyle   = spd === 'fast' ? ACCENT : spd === 'slow' ? ACCENT_SLOW : DOT_COLOR;
-      ctx.globalAlpha = spd === 'normal' ? 0.5 : 0.9;
+      ctx.globalAlpha = isBlocked ? 0.25 : (spd === 'normal' ? 0.5 : 0.9);
       ctx.fill();
       ctx.globalAlpha = 1;
     }
@@ -614,7 +661,7 @@
   // ── Init / reinit ──
   function initViz(stageConfig) {
     if (animId) cancelAnimationFrame(animId);
-    currentStages = stageConfig.map(s => ({ label: s.label.trim().toUpperCase(), speed: s.speed || 'normal', weight: s.weight || 1 }));
+    currentStages = stageConfig.map(s => ({ label: s.label.trim().toUpperCase(), speed: s.speed || 'normal', weight: s.weight || 1, concurrency: s.concurrency || 0 }));
     particles = [];
     nextId = 0;
     lastSpawn = 0;
