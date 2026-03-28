@@ -93,6 +93,11 @@
     color: #999;
     border-color: #E0E0E0;
   }
+  .speed-toggle.slow {
+    background: #1A6BBF;
+    color: #FFF;
+    border-color: #1A6BBF;
+  }
   .stage-row .remove-btn {
     background: none;
     border: none;
@@ -161,7 +166,7 @@
     <button class="add-btn" id="addBtn">+ Add stage</button>
     <button class="apply-btn" id="applyBtn">Apply</button>
   </div>
-  <div class="hint">Click the speed badge to toggle between <b>accelerated</b> (red, fast) and <b>normal</b> (gray, slow). Particles pile up before fast stages, revealing your bottleneck.</div>
+  <div class="hint">Click the speed badge to cycle: <b>Normal</b> (gray) → <b>Accelerated</b> (red, fast) → <b>Slow</b> (blue). Particles pile up before fast stages, revealing your bottleneck.</div>
 </div>
 
 <div class="viz-container">
@@ -174,11 +179,11 @@
      CONFIGURATION UI
      ════════════════════════════════════════ */
   const defaultStages = [
-    { label: 'PLAN',   fast: false },
-    { label: 'CODE',   fast: true  },
-    { label: 'REVIEW', fast: false },
-    { label: 'TEST',   fast: false },
-    { label: 'DEPLOY', fast: false },
+    { label: 'PLAN',   speed: 'normal' },
+    { label: 'CODE',   speed: 'fast'   },
+    { label: 'REVIEW', speed: 'slow'   },
+    { label: 'TEST',   speed: 'normal' },
+    { label: 'DEPLOY', speed: 'normal' },
   ];
 
   let stages = JSON.parse(JSON.stringify(defaultStages));
@@ -207,13 +212,16 @@
       input.addEventListener('input', () => { stages[i].label = input.value.toUpperCase(); });
 
       // Speed toggle
+      const SPEED_CYCLE = ['normal', 'fast', 'slow'];
+      const SPEED_LABEL = { normal: 'Normal', fast: 'Accelerated', slow: 'Slow' };
       const toggle = document.createElement('button');
-      toggle.className = 'speed-toggle ' + (s.fast ? 'fast' : 'normal');
-      toggle.textContent = s.fast ? 'Accelerated' : 'Normal';
+      toggle.className = 'speed-toggle ' + s.speed;
+      toggle.textContent = SPEED_LABEL[s.speed];
       toggle.addEventListener('click', () => {
-        stages[i].fast = !stages[i].fast;
-        toggle.className = 'speed-toggle ' + (stages[i].fast ? 'fast' : 'normal');
-        toggle.textContent = stages[i].fast ? 'Accelerated' : 'Normal';
+        const next = SPEED_CYCLE[(SPEED_CYCLE.indexOf(stages[i].speed) + 1) % SPEED_CYCLE.length];
+        stages[i].speed = next;
+        toggle.className = 'speed-toggle ' + next;
+        toggle.textContent = SPEED_LABEL[next];
       });
 
       // Remove button
@@ -254,7 +262,7 @@
   renderList();
 
   addBtn.addEventListener('click', () => {
-    stages.push({ label: 'NEW', fast: false });
+    stages.push({ label: 'NEW', speed: 'normal' });
     renderList();
     listEl.lastChild.querySelector('input').select();
   });
@@ -271,7 +279,9 @@
   const dpr    = window.devicePixelRatio || 1;
 
   const ACCENT           = '#C41E3A';
+  const ACCENT_SLOW      = '#1A6BBF';
   const DOT_COLOR        = '#B0B0B0';
+  const SLOW_SPEED       = 0.15;
   const NORMAL_SPEED     = 0.7;
   const FAST_SPEED       = 5;
   const SPAWN_INITIAL    = 60;
@@ -303,16 +313,17 @@
     return rect.width;
   }
 
-  function speedAt(x) {
+  function stageAt(x) {
     const colW = W / currentStages.length;
     const idx  = Math.min(Math.floor(x / colW), currentStages.length - 1);
-    return currentStages[idx] && currentStages[idx].fast ? FAST_SPEED : NORMAL_SPEED;
+    return currentStages[idx] || { speed: 'normal' };
   }
 
-  function isFast(x) {
-    const colW = W / currentStages.length;
-    const idx  = Math.min(Math.floor(x / colW), currentStages.length - 1);
-    return currentStages[idx] && currentStages[idx].fast;
+  function speedAt(x) {
+    const s = stageAt(x).speed;
+    if (s === 'fast') return FAST_SPEED;
+    if (s === 'slow') return SLOW_SPEED;
+    return NORMAL_SPEED;
   }
 
   function spawn(x, y) {
@@ -349,7 +360,7 @@
 
     // Ensure minimum in each fast column
     currentStages.forEach((s, idx) => {
-      if (!s.fast) return;
+      if (s.speed !== 'fast') return;
       const left = colW * idx;
       const count = particles.filter(p => p.x >= left && p.x < left + colW).length;
       if (count < MIN_IN_FAST)
@@ -366,7 +377,7 @@
     ctx.font = '600 10px Inter, system-ui, sans-serif';
     ctx.textAlign = 'center';
     currentStages.forEach((s, i) => {
-      ctx.fillStyle = s.fast ? ACCENT : '#999';
+      ctx.fillStyle = s.speed === 'fast' ? ACCENT : s.speed === 'slow' ? ACCENT_SLOW : '#999';
       ctx.fillText(s.label, i * colW + colW / 2, 15);
     });
 
@@ -402,13 +413,13 @@
       if (p.y < TOP_PAD + p.r) { p.y = TOP_PAD + p.r; p.vy = 0; }
       if (p.y > CANVAS_H - p.r) { p.y = CANVAS_H - p.r; p.vy = 0; }
 
-      const hot = isFast(p.x);
+      const spd = stageAt(p.x).speed;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fillStyle   = hot ? ACCENT : DOT_COLOR;
-      ctx.globalAlpha  = hot ? 0.9 : 0.5;
+      ctx.fillStyle   = spd === 'fast' ? ACCENT : spd === 'slow' ? ACCENT_SLOW : DOT_COLOR;
+      ctx.globalAlpha = spd === 'normal' ? 0.5 : 0.9;
       ctx.fill();
-      ctx.globalAlpha  = 1;
+      ctx.globalAlpha = 1;
     }
     particles = alive;
     animId = requestAnimationFrame(frame);
@@ -417,7 +428,7 @@
   // ── Init / reinit ──
   function initViz(stageConfig) {
     if (animId) cancelAnimationFrame(animId);
-    currentStages = stageConfig.map(s => ({ label: s.label.trim().toUpperCase(), fast: s.fast }));
+    currentStages = stageConfig.map(s => ({ label: s.label.trim().toUpperCase(), speed: s.speed || 'normal' }));
     particles = [];
     nextId = 0;
     lastSpawn = 0;
