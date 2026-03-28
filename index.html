@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flow Bottleneck Visualizer</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: #FAFAFA;
+    font-family: "Inter", system-ui, sans-serif;
+    padding: 24px;
+    gap: 32px;
+  }
+
+  /* ── Config panel ── */
+  .config {
+    width: 100%;
+    max-width: 700px;
+    background: #FFF;
+    border: 1px solid #E8E8E8;
+    border-radius: 6px;
+    padding: 24px;
+  }
+  .config h2 {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #999;
+    margin-bottom: 16px;
+  }
+  .stage-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+  .stage-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .stage-row .handle {
+    cursor: grab;
+    color: #CCC;
+    font-size: 14px;
+    width: 18px;
+    text-align: center;
+    user-select: none;
+  }
+  .stage-row .handle:active { cursor: grabbing; }
+  .stage-row input[type="text"] {
+    flex: 1;
+    padding: 7px 10px;
+    font-size: 13px;
+    font-family: "Inter", system-ui, sans-serif;
+    border: 1px solid #E0E0E0;
+    border-radius: 4px;
+    outline: none;
+    color: #1A1A1A;
+    transition: border-color 0.15s;
+  }
+  .stage-row input[type="text"]:focus {
+    border-color: #999;
+  }
+  .stage-row .speed-toggle {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 5px 10px;
+    border-radius: 4px;
+    border: 1px solid #E0E0E0;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+    min-width: 90px;
+    text-align: center;
+    font-family: "Inter", system-ui, sans-serif;
+  }
+  .speed-toggle.fast {
+    background: #C41E3A;
+    color: #FFF;
+    border-color: #C41E3A;
+  }
+  .speed-toggle.normal {
+    background: #FFF;
+    color: #999;
+    border-color: #E0E0E0;
+  }
+  .stage-row .remove-btn {
+    background: none;
+    border: none;
+    color: #CCC;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+    transition: color 0.15s;
+  }
+  .stage-row .remove-btn:hover { color: #C41E3A; }
+  .actions {
+    display: flex;
+    gap: 8px;
+  }
+  .actions button {
+    font-family: "Inter", system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .add-btn {
+    background: #FFF;
+    border: 1px solid #E0E0E0;
+    color: #666;
+  }
+  .add-btn:hover { border-color: #999; color: #1A1A1A; }
+  .apply-btn {
+    background: #1A1A1A;
+    border: 1px solid #1A1A1A;
+    color: #FFF;
+  }
+  .apply-btn:hover { background: #333; }
+  .hint {
+    font-size: 11px;
+    color: #BBB;
+    margin-top: 12px;
+    line-height: 1.5;
+  }
+
+  /* ── Canvas ── */
+  .viz-container {
+    width: 100%;
+    max-width: 700px;
+  }
+  canvas {
+    width: 100%;
+    height: 180px;
+    display: block;
+    border-radius: 2px;
+    background-color: #FFFFFF;
+    border: 1px solid #E8E8E8;
+    cursor: crosshair;
+  }
+</style>
+</head>
+<body>
+
+<div class="config">
+  <h2>Configure stages</h2>
+  <div class="stage-list" id="stageList"></div>
+  <div class="actions">
+    <button class="add-btn" id="addBtn">+ Add stage</button>
+    <button class="apply-btn" id="applyBtn">Apply</button>
+  </div>
+  <div class="hint">Click the speed badge to toggle between <b>accelerated</b> (red, fast) and <b>normal</b> (gray, slow). Particles pile up before fast stages, revealing your bottleneck.</div>
+</div>
+
+<div class="viz-container">
+  <canvas id="viz"></canvas>
+</div>
+
+<script>
+(() => {
+  /* ════════════════════════════════════════
+     CONFIGURATION UI
+     ════════════════════════════════════════ */
+  const defaultStages = [
+    { label: 'PLAN',   fast: false },
+    { label: 'CODE',   fast: true  },
+    { label: 'REVIEW', fast: false },
+    { label: 'TEST',   fast: false },
+    { label: 'DEPLOY', fast: false },
+  ];
+
+  let stages = JSON.parse(JSON.stringify(defaultStages));
+
+  const listEl  = document.getElementById('stageList');
+  const addBtn  = document.getElementById('addBtn');
+  const applyBtn = document.getElementById('applyBtn');
+
+  function renderList() {
+    listEl.innerHTML = '';
+    stages.forEach((s, i) => {
+      const row = document.createElement('div');
+      row.className = 'stage-row';
+      row.draggable = true;
+      row.dataset.index = i;
+
+      // Drag handle
+      const handle = document.createElement('span');
+      handle.className = 'handle';
+      handle.textContent = '⠿';
+
+      // Label input
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = s.label;
+      input.addEventListener('input', () => { stages[i].label = input.value.toUpperCase(); });
+
+      // Speed toggle
+      const toggle = document.createElement('button');
+      toggle.className = 'speed-toggle ' + (s.fast ? 'fast' : 'normal');
+      toggle.textContent = s.fast ? 'Accelerated' : 'Normal';
+      toggle.addEventListener('click', () => {
+        stages[i].fast = !stages[i].fast;
+        toggle.className = 'speed-toggle ' + (stages[i].fast ? 'fast' : 'normal');
+        toggle.textContent = stages[i].fast ? 'Accelerated' : 'Normal';
+      });
+
+      // Remove button
+      const remove = document.createElement('button');
+      remove.className = 'remove-btn';
+      remove.textContent = '×';
+      remove.addEventListener('click', () => {
+        if (stages.length > 2) {
+          stages.splice(i, 1);
+          renderList();
+        }
+      });
+
+      row.append(handle, input, toggle, remove);
+      listEl.appendChild(row);
+
+      // ── Drag & drop reorder ──
+      row.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/plain', i);
+        row.style.opacity = '0.4';
+      });
+      row.addEventListener('dragend', () => { row.style.opacity = '1'; });
+      row.addEventListener('dragover', e => { e.preventDefault(); row.style.borderTop = '2px solid #C41E3A'; });
+      row.addEventListener('dragleave', () => { row.style.borderTop = 'none'; });
+      row.addEventListener('drop', e => {
+        e.preventDefault();
+        row.style.borderTop = 'none';
+        const from = parseInt(e.dataTransfer.getData('text/plain'));
+        const to = i;
+        if (from !== to) {
+          const [moved] = stages.splice(from, 1);
+          stages.splice(to, 0, moved);
+          renderList();
+        }
+      });
+    });
+  }
+  renderList();
+
+  addBtn.addEventListener('click', () => {
+    stages.push({ label: 'NEW', fast: false });
+    renderList();
+    listEl.lastChild.querySelector('input').select();
+  });
+
+  applyBtn.addEventListener('click', () => {
+    initViz(stages.filter(s => s.label.trim()));
+  });
+
+  /* ════════════════════════════════════════
+     PARTICLE VISUALIZATION ENGINE
+     ════════════════════════════════════════ */
+  const canvas = document.getElementById('viz');
+  const ctx    = canvas.getContext('2d');
+  const dpr    = window.devicePixelRatio || 1;
+
+  const ACCENT           = '#C41E3A';
+  const DOT_COLOR        = '#B0B0B0';
+  const NORMAL_SPEED     = 0.7;
+  const FAST_SPEED       = 5;
+  const SPAWN_INITIAL    = 60;
+  const SPAWN_INTERVAL   = 200;
+  const SPAWN_PER_TICK   = 2;
+  const MIN_IN_FAST      = 4;
+  const CANVAS_H         = 180;
+  const MOUSE_RADIUS     = 80;
+  const MOUSE_FORCE      = 1.2;
+  const DAMPING          = 0.92;
+  const SPRING           = 0.02;
+  const TOP_PAD          = 24;
+
+  let currentStages = [];   // [{ label, fast }]
+  let particles     = [];
+  let nextId        = 0;
+  let animId        = null;
+  let lastSpawn     = 0;
+  let W             = 0;
+  const mouse       = { x: -1e3, y: -1e3, active: false };
+  const centerY     = TOP_PAD + (CANVAS_H - TOP_PAD) / 2;
+  const spreadY     = 60;
+
+  function resize() {
+    const rect = canvas.getBoundingClientRect();
+    canvas.width  = rect.width  * dpr;
+    canvas.height = CANVAS_H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return rect.width;
+  }
+
+  function speedAt(x) {
+    const colW = W / currentStages.length;
+    const idx  = Math.min(Math.floor(x / colW), currentStages.length - 1);
+    return currentStages[idx] && currentStages[idx].fast ? FAST_SPEED : NORMAL_SPEED;
+  }
+
+  function isFast(x) {
+    const colW = W / currentStages.length;
+    const idx  = Math.min(Math.floor(x / colW), currentStages.length - 1);
+    return currentStages[idx] && currentStages[idx].fast;
+  }
+
+  function spawn(x, y) {
+    nextId++;
+    const baseY = y != null ? y : centerY + (Math.random() - 0.5) * spreadY * 2;
+    return { id: nextId, x, y: baseY, baseY, vy: 0, r: 3.5 + Math.random() * 2 };
+  }
+
+  // ── Mouse / touch ──
+  canvas.addEventListener('mousemove', e => {
+    const r = canvas.getBoundingClientRect();
+    mouse.x = e.clientX - r.left; mouse.y = e.clientY - r.top; mouse.active = true;
+  });
+  canvas.addEventListener('mouseleave', () => { mouse.active = false; });
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    const r = canvas.getBoundingClientRect();
+    mouse.x = e.touches[0].clientX - r.left; mouse.y = e.touches[0].clientY - r.top; mouse.active = true;
+  }, { passive: false });
+  canvas.addEventListener('touchend', () => { mouse.active = false; });
+
+  // ── Main loop ──
+  function frame(ts) {
+    const newW = canvas.getBoundingClientRect().width;
+    if (Math.abs(newW - W) > 2) W = resize();
+    const colW = W / currentStages.length;
+
+    // Spawn from left edge
+    if (ts - lastSpawn > SPAWN_INTERVAL) {
+      lastSpawn = ts;
+      for (let i = 0; i < SPAWN_PER_TICK; i++)
+        particles.push(spawn(Math.random() * colW * 0.1));
+    }
+
+    // Ensure minimum in each fast column
+    currentStages.forEach((s, idx) => {
+      if (!s.fast) return;
+      const left = colW * idx;
+      const count = particles.filter(p => p.x >= left && p.x < left + colW).length;
+      if (count < MIN_IN_FAST)
+        for (let i = 0; i < MIN_IN_FAST - count; i++)
+          particles.push(spawn(left + Math.random() * colW));
+    });
+
+    // Clear
+    ctx.clearRect(0, 0, W, CANVAS_H);
+    ctx.fillStyle = 'rgba(0,0,0,0.015)';
+    ctx.fillRect(0, TOP_PAD, W, CANVAS_H - TOP_PAD);
+
+    // Labels
+    ctx.font = '600 10px Inter, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    currentStages.forEach((s, i) => {
+      ctx.fillStyle = s.fast ? ACCENT : '#999';
+      ctx.fillText(s.label, i * colW + colW / 2, 15);
+    });
+
+    // Column dividers
+    for (let i = 1; i < currentStages.length; i++) {
+      ctx.strokeStyle = 'rgba(0,0,0,0.06)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(i * colW, TOP_PAD);
+      ctx.lineTo(i * colW, CANVAS_H);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Update & draw particles
+    const alive = [];
+    for (const p of particles) {
+      p.x += speedAt(p.x);
+      if (p.x > W + 10) continue;
+      alive.push(p);
+
+      if (mouse.active) {
+        const dx = p.x - mouse.x, dy = p.y - mouse.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < MOUSE_RADIUS && dist > 0)
+          p.vy += (dy / dist) * (1 - dist / MOUSE_RADIUS) * MOUSE_FORCE;
+      }
+
+      p.vy += (p.baseY - p.y) * SPRING;
+      p.vy *= DAMPING;
+      p.y  += p.vy;
+      if (p.y < TOP_PAD + p.r) { p.y = TOP_PAD + p.r; p.vy = 0; }
+      if (p.y > CANVAS_H - p.r) { p.y = CANVAS_H - p.r; p.vy = 0; }
+
+      const hot = isFast(p.x);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle   = hot ? ACCENT : DOT_COLOR;
+      ctx.globalAlpha  = hot ? 0.9 : 0.5;
+      ctx.fill();
+      ctx.globalAlpha  = 1;
+    }
+    particles = alive;
+    animId = requestAnimationFrame(frame);
+  }
+
+  // ── Init / reinit ──
+  function initViz(stageConfig) {
+    if (animId) cancelAnimationFrame(animId);
+    currentStages = stageConfig.map(s => ({ label: s.label.trim().toUpperCase(), fast: s.fast }));
+    particles = [];
+    nextId = 0;
+    lastSpawn = 0;
+    W = resize();
+    for (let i = 0; i < SPAWN_INITIAL; i++)
+      particles.push(spawn(Math.random() * W));
+    animId = requestAnimationFrame(frame);
+  }
+
+  window.addEventListener('resize', () => { W = resize(); });
+
+  // Boot with defaults
+  initViz(defaultStages);
+})();
+</script>
+</body>
+</html>
