@@ -271,7 +271,7 @@
     try {
       return decodeURIComponent(hash.replace(/^#/, '')).split('|').map(part => {
         const [label, spd, w, c] = part.split(',');
-        return { label: decodeURIComponent(label).toUpperCase(), speed: CHAR_SPEED[spd] || 'normal', weight: Math.min(9, Math.max(1, parseInt(w) || 1)), concurrency: Math.min(20, Math.max(0, parseInt(c) || 0)) };
+        return { label: label.toUpperCase(), speed: CHAR_SPEED[spd] || 'normal', weight: Math.min(9, Math.max(1, parseInt(w) || 1)), concurrency: Math.min(20, Math.max(0, parseInt(c) || 0)) };
       }).filter(s => s.label);
     } catch { return null; }
   }
