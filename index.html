@@ -606,9 +606,10 @@
     }
 
     // Pre-compute live load per stage (mutable — updated as particles are admitted this frame)
+    // Only count particles that are actively inside a stage (not waiting at boundary)
     const stageLoad = currentStages.map((s, idx) => {
       const { left, width } = colOffsets[idx];
-      return particles.filter(p => p.x >= left && p.x < left + width).length;
+      return particles.filter(p => p.x >= left && p.x < left + width && !p.atBoundary).length;
     });
 
     // Update & draw particles
@@ -617,24 +618,37 @@
       const curIdx  = stageIndexAt(p.x);
       const nextX   = p.x + speedAt(p.x);
       const nextIdx = stageIndexAt(nextX);
-
-      // Would this particle enter a new stage that is at capacity?
       const enteringNewStage = nextIdx !== curIdx;
       const targetStage = currentStages[nextIdx];
-      const isBlocked = enteringNewStage
+
+      // Is the next stage at capacity?
+      const nextFull = enteringNewStage
         && targetStage
         && targetStage.concurrency > 0
         && stageLoad[nextIdx] >= targetStage.concurrency;
 
-      if (isBlocked) {
+      if (nextFull) {
+        // Advance to the right boundary of the current stage and wait there.
+        // This frees the current stage's slot so upstream work can continue.
+        const { left: cLeft, width: cWidth } = colOffsets[curIdx];
+        const boundary = cLeft + cWidth - 1;
+        if (p.x < boundary) {
+          p.x = Math.min(nextX, boundary);
+          // If we just reached the boundary, release the current stage slot
+          if (p.x >= boundary && !p.atBoundary) {
+            p.atBoundary = true;
+            if (stageLoad[curIdx] > 0) stageLoad[curIdx]--;
+          }
+        }
         p.queued = true;
       } else {
         p.x = nextX;
         if (enteringNewStage) {
-          // Vacate current stage slot, occupy next stage slot
-          if (stageLoad[curIdx] > 0) stageLoad[curIdx]--;
+          // If coming from boundary waiting, slot was already released
+          if (!p.atBoundary && stageLoad[curIdx] > 0) stageLoad[curIdx]--;
           stageLoad[nextIdx]++;
         }
+        p.atBoundary = false;
         if (p.queued) p.queued = false;
       }
       if (p.x > W + 10) continue;
