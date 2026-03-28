@@ -445,7 +445,7 @@
   const SLOW_SPEED       = 0.15;
   const NORMAL_SPEED     = 0.7;
   const FAST_SPEED       = 5;
-  const SPAWN_INITIAL    = 60;
+  const SPAWN_INITIAL    = 0;
   const SPAWN_INTERVAL   = 200;
   const SPAWN_PER_TICK   = 2;
 
@@ -689,8 +689,6 @@
     lastSpawn = 0;
     W = resize();
     buildOffsets();
-    for (let i = 0; i < SPAWN_INITIAL; i++)
-      particles.push(spawn(Math.random() * W));
     animId = requestAnimationFrame(frame);
   }
 
