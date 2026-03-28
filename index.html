@@ -523,7 +523,7 @@
     // Determine if any label needs rotation and adjust TOP_PAD accordingly
     ctx.font = '600 10px Inter, system-ui, sans-serif';
     const needsRotation = currentStages.some((s, i) => ctx.measureText(s.label).width + 8 > colOffsets[i].width);
-    TOP_PAD = needsRotation ? 52 : 28;
+    TOP_PAD = needsRotation ? 62 : 28;
 
     // Clear
     ctx.clearRect(0, 0, W, CANVAS_H);
@@ -537,11 +537,11 @@
       const cx = Math.min(Math.max(left + width / 2, 6), W - 6);
       const textW = ctx.measureText(s.label).width;
       if (textW + 8 > width) {
-        // Rotated: pivot at centre of column, text reads bottom-to-top, baseline in top-pad zone
+        // Diagonal: angled up-right, anchored at bottom-left of the label zone
         ctx.save();
-        ctx.textAlign = 'center';
-        ctx.translate(cx, TOP_PAD / 2 + 2);
-        ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = 'left';
+        ctx.translate(cx - width / 2 + 4, TOP_PAD - 4);
+        ctx.rotate(-Math.PI / 4);
         ctx.fillText(s.label, 0, 0);
         ctx.restore();
       } else {
