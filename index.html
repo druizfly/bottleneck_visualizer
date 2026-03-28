@@ -22,7 +22,7 @@
   /* ── Config panel ── */
   .config {
     width: 100%;
-    max-width: 700px;
+    max-width: 1000px;
     background: #FFF;
     border: 1px solid #E8E8E8;
     border-radius: 6px;
@@ -78,6 +78,7 @@
   .stage-row .handle:active { cursor: grabbing; }
   .stage-row input[type="text"] {
     flex: 1;
+    min-width: 80px;
     padding: 7px 10px;
     font-size: 13px;
     font-family: "Inter", system-ui, sans-serif;
@@ -206,11 +207,11 @@
   /* ── Canvas ── */
   .viz-container {
     width: 100%;
-    max-width: 700px;
+    max-width: 1000px;
   }
   canvas {
     width: 100%;
-    height: 180px;
+    height: 220px;
     display: block;
     border-radius: 2px;
     background-color: #FFFFFF;
@@ -422,12 +423,12 @@
   const SPAWN_INTERVAL   = 200;
   const SPAWN_PER_TICK   = 2;
   const MIN_IN_FAST      = 4;
-  const CANVAS_H         = 180;
+  const CANVAS_H         = 220;
   const MOUSE_RADIUS     = 80;
   const MOUSE_FORCE      = 1.2;
   const DAMPING          = 0.92;
   const SPRING           = 0.02;
-  const TOP_PAD          = 24;
+  let TOP_PAD            = 28;
 
   let currentStages = [];   // [{ label, speed, weight }]
   let colOffsets    = [];   // pre-computed [{ left, width }] per stage
@@ -437,8 +438,9 @@
   let lastSpawn     = 0;
   let W             = 0;
   const mouse       = { x: -1e3, y: -1e3, active: false };
-  const centerY     = TOP_PAD + (CANVAS_H - TOP_PAD) / 2;
   const spreadY     = 60;
+
+  function centerY() { return TOP_PAD + (CANVAS_H - TOP_PAD) / 2; }
 
   function resize() {
     const rect = canvas.getBoundingClientRect();
@@ -478,7 +480,7 @@
 
   function spawn(x, y) {
     nextId++;
-    const baseY = y != null ? y : centerY + (Math.random() - 0.5) * spreadY * 2;
+    const baseY = y != null ? y : centerY() + (Math.random() - 0.5) * spreadY * 2;
     return { id: nextId, x, y: baseY, baseY, vy: 0, r: 3.5 + Math.random() * 2 };
   }
 
@@ -518,18 +520,34 @@
           particles.push(spawn(left + Math.random() * width));
     });
 
+    // Determine if any label needs rotation and adjust TOP_PAD accordingly
+    ctx.font = '600 10px Inter, system-ui, sans-serif';
+    const needsRotation = currentStages.some((s, i) => ctx.measureText(s.label).width + 8 > colOffsets[i].width);
+    TOP_PAD = needsRotation ? 52 : 28;
+
     // Clear
     ctx.clearRect(0, 0, W, CANVAS_H);
     ctx.fillStyle = 'rgba(0,0,0,0.015)';
     ctx.fillRect(0, TOP_PAD, W, CANVAS_H - TOP_PAD);
 
-    // Labels
-    ctx.font = '600 10px Inter, system-ui, sans-serif';
-    ctx.textAlign = 'center';
+    // Labels — rotate vertically when the column is too narrow for horizontal text
     currentStages.forEach((s, i) => {
       ctx.fillStyle = s.speed === 'fast' ? ACCENT : s.speed === 'slow' ? ACCENT_SLOW : '#999';
       const { left, width } = colOffsets[i];
-      ctx.fillText(s.label, left + width / 2, 15);
+      const cx = Math.min(Math.max(left + width / 2, 6), W - 6);
+      const textW = ctx.measureText(s.label).width;
+      if (textW + 8 > width) {
+        // Rotated: pivot at centre of column, text reads bottom-to-top, baseline in top-pad zone
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.translate(cx, TOP_PAD / 2 + 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText(s.label, 0, 0);
+        ctx.restore();
+      } else {
+        ctx.textAlign = 'center';
+        ctx.fillText(s.label, cx, TOP_PAD - 10);
+      }
     });
 
     // Column dividers
