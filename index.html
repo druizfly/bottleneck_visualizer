@@ -70,6 +70,37 @@
   .stage-row input[type="text"]:focus {
     border-color: #999;
   }
+  .stage-row .weight-ctrl {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex-shrink: 0;
+  }
+  .stage-row .weight-ctrl button {
+    width: 22px;
+    height: 22px;
+    border: 1px solid #E0E0E0;
+    border-radius: 3px;
+    background: #FFF;
+    color: #666;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    font-family: "Inter", system-ui, sans-serif;
+    transition: all 0.15s;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .stage-row .weight-ctrl button:hover { border-color: #999; color: #1A1A1A; }
+  .stage-row .weight-ctrl .weight-val {
+    font-size: 11px;
+    font-weight: 600;
+    color: #666;
+    min-width: 18px;
+    text-align: center;
+  }
   .stage-row .speed-toggle {
     font-size: 11px;
     font-weight: 600;
@@ -166,7 +197,7 @@
     <button class="add-btn" id="addBtn">+ Add stage</button>
     <button class="apply-btn" id="applyBtn">Apply</button>
   </div>
-  <div class="hint">Click the speed badge to cycle: <b>Normal</b> (gray) → <b>Accelerated</b> (red, fast) → <b>Slow</b> (blue). Particles pile up before fast stages, revealing your bottleneck.</div>
+  <div class="hint">Click the speed badge to cycle: <b>Normal</b> (gray) → <b>Accelerated</b> (red, fast) → <b>Slow</b> (blue). Use <b>− / +</b> to set the relative width of each stage. Particles pile up before fast stages, revealing your bottleneck.</div>
 </div>
 
 <div class="viz-container">
@@ -179,11 +210,11 @@
      CONFIGURATION UI
      ════════════════════════════════════════ */
   const defaultStages = [
-    { label: 'PLAN',   speed: 'normal' },
-    { label: 'CODE',   speed: 'fast'   },
-    { label: 'REVIEW', speed: 'slow'   },
-    { label: 'TEST',   speed: 'normal' },
-    { label: 'DEPLOY', speed: 'normal' },
+    { label: 'PLAN',   speed: 'normal', weight: 1 },
+    { label: 'CODE',   speed: 'fast',   weight: 3 },
+    { label: 'REVIEW', speed: 'slow',   weight: 2 },
+    { label: 'TEST',   speed: 'normal', weight: 2 },
+    { label: 'DEPLOY', speed: 'normal', weight: 1 },
   ];
 
   let stages = JSON.parse(JSON.stringify(defaultStages));
@@ -224,6 +255,30 @@
         toggle.textContent = SPEED_LABEL[next];
       });
 
+      // Weight stepper
+      const weightCtrl = document.createElement('div');
+      weightCtrl.className = 'weight-ctrl';
+      const weightDec = document.createElement('button');
+      weightDec.textContent = '−';
+      const weightVal = document.createElement('span');
+      weightVal.className = 'weight-val';
+      weightVal.textContent = s.weight;
+      const weightInc = document.createElement('button');
+      weightInc.textContent = '+';
+      weightDec.addEventListener('click', () => {
+        if (stages[i].weight > 1) {
+          stages[i].weight--;
+          weightVal.textContent = stages[i].weight;
+        }
+      });
+      weightInc.addEventListener('click', () => {
+        if (stages[i].weight < 9) {
+          stages[i].weight++;
+          weightVal.textContent = stages[i].weight;
+        }
+      });
+      weightCtrl.append(weightDec, weightVal, weightInc);
+
       // Remove button
       const remove = document.createElement('button');
       remove.className = 'remove-btn';
@@ -235,7 +290,7 @@
         }
       });
 
-      row.append(handle, input, toggle, remove);
+      row.append(handle, input, toggle, weightCtrl, remove);
       listEl.appendChild(row);
 
       // ── Drag & drop reorder ──
@@ -262,7 +317,7 @@
   renderList();
 
   addBtn.addEventListener('click', () => {
-    stages.push({ label: 'NEW', speed: 'normal' });
+    stages.push({ label: 'NEW', speed: 'normal', weight: 1 });
     renderList();
     listEl.lastChild.querySelector('input').select();
   });
@@ -295,7 +350,8 @@
   const SPRING           = 0.02;
   const TOP_PAD          = 24;
 
-  let currentStages = [];   // [{ label, fast }]
+  let currentStages = [];   // [{ label, speed, weight }]
+  let colOffsets    = [];   // pre-computed [{ left, width }] per stage
   let particles     = [];
   let nextId        = 0;
   let animId        = null;
@@ -313,10 +369,25 @@
     return rect.width;
   }
 
+  function buildOffsets() {
+    const totalWeight = currentStages.reduce((sum, s) => sum + (s.weight || 1), 0);
+    let left = 0;
+    colOffsets = currentStages.map(s => {
+      const width = (s.weight || 1) / totalWeight * W;
+      const entry = { left, width };
+      left += width;
+      return entry;
+    });
+  }
+
+  function stageIndexAt(x) {
+    for (let i = colOffsets.length - 1; i >= 0; i--)
+      if (x >= colOffsets[i].left) return i;
+    return 0;
+  }
+
   function stageAt(x) {
-    const colW = W / currentStages.length;
-    const idx  = Math.min(Math.floor(x / colW), currentStages.length - 1);
-    return currentStages[idx] || { speed: 'normal' };
+    return currentStages[stageIndexAt(x)] || { speed: 'normal', weight: 1 };
   }
 
   function speedAt(x) {
@@ -348,24 +419,24 @@
   // ── Main loop ──
   function frame(ts) {
     const newW = canvas.getBoundingClientRect().width;
-    if (Math.abs(newW - W) > 2) W = resize();
-    const colW = W / currentStages.length;
+    if (Math.abs(newW - W) > 2) { W = resize(); buildOffsets(); }
 
-    // Spawn from left edge
+    // Spawn from left edge (within first column width)
     if (ts - lastSpawn > SPAWN_INTERVAL) {
       lastSpawn = ts;
+      const firstColW = colOffsets.length ? colOffsets[0].width : W;
       for (let i = 0; i < SPAWN_PER_TICK; i++)
-        particles.push(spawn(Math.random() * colW * 0.1));
+        particles.push(spawn(Math.random() * firstColW * 0.1));
     }
 
     // Ensure minimum in each fast column
     currentStages.forEach((s, idx) => {
       if (s.speed !== 'fast') return;
-      const left = colW * idx;
-      const count = particles.filter(p => p.x >= left && p.x < left + colW).length;
+      const { left, width } = colOffsets[idx];
+      const count = particles.filter(p => p.x >= left && p.x < left + width).length;
       if (count < MIN_IN_FAST)
         for (let i = 0; i < MIN_IN_FAST - count; i++)
-          particles.push(spawn(left + Math.random() * colW));
+          particles.push(spawn(left + Math.random() * width));
     });
 
     // Clear
@@ -378,17 +449,18 @@
     ctx.textAlign = 'center';
     currentStages.forEach((s, i) => {
       ctx.fillStyle = s.speed === 'fast' ? ACCENT : s.speed === 'slow' ? ACCENT_SLOW : '#999';
-      ctx.fillText(s.label, i * colW + colW / 2, 15);
+      const { left, width } = colOffsets[i];
+      ctx.fillText(s.label, left + width / 2, 15);
     });
 
     // Column dividers
-    for (let i = 1; i < currentStages.length; i++) {
+    for (let i = 1; i < colOffsets.length; i++) {
       ctx.strokeStyle = 'rgba(0,0,0,0.06)';
       ctx.lineWidth = 1;
       ctx.setLineDash([3, 3]);
       ctx.beginPath();
-      ctx.moveTo(i * colW, TOP_PAD);
-      ctx.lineTo(i * colW, CANVAS_H);
+      ctx.moveTo(colOffsets[i].left, TOP_PAD);
+      ctx.lineTo(colOffsets[i].left, CANVAS_H);
       ctx.stroke();
       ctx.setLineDash([]);
     }
@@ -428,17 +500,18 @@
   // ── Init / reinit ──
   function initViz(stageConfig) {
     if (animId) cancelAnimationFrame(animId);
-    currentStages = stageConfig.map(s => ({ label: s.label.trim().toUpperCase(), speed: s.speed || 'normal' }));
+    currentStages = stageConfig.map(s => ({ label: s.label.trim().toUpperCase(), speed: s.speed || 'normal', weight: s.weight || 1 }));
     particles = [];
     nextId = 0;
     lastSpawn = 0;
     W = resize();
+    buildOffsets();
     for (let i = 0; i < SPAWN_INITIAL; i++)
       particles.push(spawn(Math.random() * W));
     animId = requestAnimationFrame(frame);
   }
 
-  window.addEventListener('resize', () => { W = resize(); });
+  window.addEventListener('resize', () => { W = resize(); buildOffsets(); });
 
   // Boot with defaults
   initViz(defaultStages);
