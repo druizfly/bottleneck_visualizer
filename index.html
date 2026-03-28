@@ -559,10 +559,11 @@
       const lines = labelLines(s.label);
       const maxTextW = Math.max(...lines.map(l => ctx.measureText(l).width));
       if (maxTextW + 8 > width) {
-        // Diagonal: 45°, each line offset so they stack neatly
+        // Diagonal: 45°, anchor clamped so text doesn't exit the canvas right edge
         ctx.save();
         ctx.textAlign = 'left';
-        ctx.translate(left + 4, TOP_PAD - 4);
+        const diagX = Math.min(left + 4, W - maxTextW * 0.707 - 4);
+        ctx.translate(diagX, TOP_PAD - 4);
         ctx.rotate(-Math.PI / 4);
         lines.forEach((line, li) => ctx.fillText(line, 0, li * LINE_H));
         ctx.restore();
