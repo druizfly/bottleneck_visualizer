@@ -6,7 +6,7 @@ A single-file interactive particle animation that visualizes flow bottlenecks in
 
 ## How it works
 
-Particles spawn on the left edge and drift rightward through labeled columns. Each column is either **normal** (speed 0.7 — particles crawl and accumulate) or **accelerated** (speed 5 — particles zip through, colored red). The visual effect: dots pile up *before* fast stages, making bottlenecks immediately obvious.
+Particles spawn on the left edge and drift rightward through labeled columns. Each column has a **speed** (Normal / Accelerated / Slow) and a **weight** (relative canvas width). Dots pile up *before* fast stages, making bottlenecks immediately obvious.
 
 The entire app lives in `index.html` — no build step, no dependencies, no framework.
 
@@ -14,25 +14,33 @@ The entire app lives in `index.html` — no build step, no dependencies, no fram
 
 ```
 index.html   — Full app: config UI + canvas particle engine
+README.md    — User-facing documentation and guide
 CLAUDE.md    — This file
 ```
 
 ## Architecture (single file, two sections)
 
 ### 1. Configuration UI (DOM)
-- Renders a list of stage rows, each with: drag handle, text input, speed toggle (Normal / Accelerated), remove button
+
+- Renders a header row (Stage / Speed / Length) above a list of stage rows
+- Each row: drag handle, text input, speed toggle, length stepper (− / +), remove button
 - Drag-and-drop reorder via native HTML5 drag events
 - "Add stage" appends a new row; "Apply" calls `initViz()` to restart the animation
+- "Share link" encodes the current config into the URL hash and copies to clipboard
 - Minimum 2 stages enforced
 
 ### 2. Particle engine (Canvas 2D)
+
 - Uses `requestAnimationFrame` loop at native refresh rate
 - HiDPI-aware: scales canvas by `devicePixelRatio`
-- Responsive: recalculates width on resize
+- Responsive: recalculates width and column offsets on resize
+- Column widths are **proportional to stage weight** (not equal) — computed via `buildOffsets()`
+- `TOP_PAD` is dynamic: expands to 62px when any label needs diagonal rendering, 28px otherwise
 
 Key constants (tune these for different feels):
 | Constant | Value | Purpose |
 |---|---|---|
+| `SLOW_SPEED` | 0.15 | Pixels/frame for slow columns |
 | `NORMAL_SPEED` | 0.7 | Pixels/frame for normal columns |
 | `FAST_SPEED` | 5 | Pixels/frame for accelerated columns |
 | `SPAWN_INITIAL` | 60 | Particles seeded on first render |
@@ -43,17 +51,32 @@ Key constants (tune these for different feels):
 | `MOUSE_FORCE` | 1.2 | Repulsion strength on hover |
 | `DAMPING` | 0.92 | Velocity damping per frame |
 | `SPRING` | 0.02 | Spring constant pulling particles back to baseline Y |
-| `CANVAS_H` | 180px | Fixed canvas height |
+| `CANVAS_H` | 220px | Fixed canvas height |
+
+### Speed modes
+
+| Mode | Color | Constant |
+|---|---|---|
+| Normal | Gray `#B0B0B0` | `NORMAL_SPEED` |
+| Accelerated | Crimson `#C41E3A` | `FAST_SPEED` |
+| Slow | Blue `#1A6BBF` | `SLOW_SPEED` |
+
+### Label rendering
+
+Labels are drawn in `TOP_PAD` zone above the particle area:
+- **Horizontal** when the label fits the column width
+- **Diagonal (45°)** when the column is too narrow — anchor X is clamped to prevent right-edge clipping
+- Multi-word labels split across two lines; single words truncated at 10 chars with `…`
+
+### URL hash serialisation
+
+Format: `#LABEL,speedChar,weight|LABEL,speedChar,weight|...`
+Speed chars: `n` = normal, `f` = fast, `s` = slow
+`decodeStages()` runs `decodeURIComponent` on the full hash before splitting, so `%7C`-encoded pipes are handled correctly.
 
 ### Mouse/touch interaction
-Hovering pushes nearby particles away (radial repulsion). Each particle has a `baseY` it springs back to, creating a satisfying wobble effect.
 
-### Color scheme
-- Accent (accelerated dots + labels): `#C41E3A` (crimson)
-- Normal dots: `#B0B0B0` at 50% opacity
-- Accelerated dots: `#C41E3A` at 90% opacity
-- Background: `#FFFFFF` with subtle `rgba(0,0,0,0.015)` fill for depth
-- UI chrome: Inter font, `#FAFAFA` page bg, `#E8E8E8` borders
+Hovering pushes nearby particles away (radial repulsion). Each particle has a `baseY` it springs back to, creating a satisfying wobble effect.
 
 ## Origin / attribution
 
@@ -62,14 +85,12 @@ The particle animation logic was extracted from the minified source of `backgrou
 - Visualization component: `WhatsNewPill-BaNGgpzN.js` (export `a` / internal name `bt`)
 - Created by Lou Jaybee and the team at [Ona](https://ona.com)
 
-The original rendered a fixed CODE → REVIEW → TEST pipeline with white background. This version generalizes it to accept any ordered list of stages with per-stage speed control.
+The original rendered a fixed CODE → REVIEW → TEST pipeline with white background. This version generalizes it to accept any ordered list of stages with per-stage speed and length control.
 
 ## Future iteration ideas
 
-- URL hash or query-param config so visualizations can be shared as links
 - Export as GIF or video
 - Dark mode theme toggle
-- Multiple speed tiers (slow / normal / fast / instant) instead of binary
 - Adjustable particle density and spawn rate from the UI
 - Embed mode (hide config panel, just show canvas) for use in presentations
 - Per-stage custom colors
