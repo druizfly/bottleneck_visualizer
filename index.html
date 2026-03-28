@@ -520,9 +520,29 @@
           particles.push(spawn(left + Math.random() * width));
     });
 
-    // Determine if any label needs rotation and adjust TOP_PAD accordingly
+    // ── Label helpers ──
+    // Split a label into display lines: words split across two rows, each capped at 10 chars
+    function labelLines(raw) {
+      const MAXCH = 10;
+      const words = raw.split(' ');
+      if (words.length === 1) {
+        const w = words[0];
+        return [w.length > MAXCH ? w.slice(0, MAXCH - 1) + '…' : w];
+      }
+      // Two-line split: first word(s) on line 1, rest on line 2
+      const mid = Math.ceil(words.length / 2);
+      let l1 = words.slice(0, mid).join(' ');
+      let l2 = words.slice(mid).join(' ');
+      if (l1.length > MAXCH) l1 = l1.slice(0, MAXCH - 1) + '…';
+      if (l2.length > MAXCH) l2 = l2.slice(0, MAXCH - 1) + '…';
+      return l2 ? [l1, l2] : [l1];
+    }
+
     ctx.font = '600 10px Inter, system-ui, sans-serif';
-    const needsRotation = currentStages.some((s, i) => ctx.measureText(s.label).width + 8 > colOffsets[i].width);
+    const needsRotation = currentStages.some((s, i) => {
+      const lines = labelLines(s.label);
+      return Math.max(...lines.map(l => ctx.measureText(l).width)) + 8 > colOffsets[i].width;
+    });
     TOP_PAD = needsRotation ? 62 : 28;
 
     // Clear
@@ -530,23 +550,28 @@
     ctx.fillStyle = 'rgba(0,0,0,0.015)';
     ctx.fillRect(0, TOP_PAD, W, CANVAS_H - TOP_PAD);
 
-    // Labels — rotate vertically when the column is too narrow for horizontal text
+    // Labels — horizontal (single or two-line) or diagonal when column is too narrow
+    const LINE_H = 12;
     currentStages.forEach((s, i) => {
       ctx.fillStyle = s.speed === 'fast' ? ACCENT : s.speed === 'slow' ? ACCENT_SLOW : '#999';
       const { left, width } = colOffsets[i];
       const cx = Math.min(Math.max(left + width / 2, 6), W - 6);
-      const textW = ctx.measureText(s.label).width;
-      if (textW + 8 > width) {
-        // Diagonal: angled up-right, anchored at bottom-left of the label zone
+      const lines = labelLines(s.label);
+      const maxTextW = Math.max(...lines.map(l => ctx.measureText(l).width));
+      if (maxTextW + 8 > width) {
+        // Diagonal: 45°, each line offset so they stack neatly
         ctx.save();
         ctx.textAlign = 'left';
-        ctx.translate(cx - width / 2 + 4, TOP_PAD - 4);
+        ctx.translate(left + 4, TOP_PAD - 4);
         ctx.rotate(-Math.PI / 4);
-        ctx.fillText(s.label, 0, 0);
+        lines.forEach((line, li) => ctx.fillText(line, 0, li * LINE_H));
         ctx.restore();
       } else {
+        // Horizontal, vertically centred in the top-pad zone
         ctx.textAlign = 'center';
-        ctx.fillText(s.label, cx, TOP_PAD - 10);
+        const totalH = lines.length * LINE_H;
+        const startY = (TOP_PAD - totalH) / 2 + LINE_H - 2;
+        lines.forEach((line, li) => ctx.fillText(line, cx, startY + li * LINE_H));
       }
     });
 
