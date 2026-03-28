@@ -605,9 +605,8 @@
       ctx.setLineDash([]);
     }
 
-    // Pre-compute how many particles are currently inside each concurrency-limited stage
+    // Pre-compute live load per stage (mutable — updated as particles are admitted this frame)
     const stageLoad = currentStages.map((s, idx) => {
-      if (!s.concurrency) return 0;
       const { left, width } = colOffsets[idx];
       return particles.filter(p => p.x >= left && p.x < left + width).length;
     });
@@ -615,11 +614,11 @@
     // Update & draw particles
     const alive = [];
     for (const p of particles) {
-      const curIdx = stageIndexAt(p.x);
-      const nextX  = p.x + speedAt(p.x);
+      const curIdx  = stageIndexAt(p.x);
+      const nextX   = p.x + speedAt(p.x);
       const nextIdx = stageIndexAt(nextX);
 
-      // Would this particle enter a new stage that is already at capacity?
+      // Would this particle enter a new stage that is at capacity?
       const enteringNewStage = nextIdx !== curIdx;
       const targetStage = currentStages[nextIdx];
       const isBlocked = enteringNewStage
@@ -631,8 +630,12 @@
         p.queued = true;
       } else {
         p.x = nextX;
-        // Clear queued flag once the particle has entered its target stage
-        if (p.queued && nextIdx === stageIndexAt(p.x)) p.queued = false;
+        if (enteringNewStage) {
+          // Vacate current stage slot, occupy next stage slot
+          if (stageLoad[curIdx] > 0) stageLoad[curIdx]--;
+          stageLoad[nextIdx]++;
+        }
+        if (p.queued) p.queued = false;
       }
       if (p.x > W + 10) continue;
       alive.push(p);
